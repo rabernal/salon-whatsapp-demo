@@ -3,8 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Session } from "./types.js";
+import type { SalonContext } from "./types.js";
 import { getSalon, serviceById } from "./salon.js";
-import { listSalons } from "./db.js";
+import { listSalons, getMessages, addMessage, clearMessages } from "./db.js";
 import { prettyDate, prettyTime } from "./calendar.js";
 import { respond, isLiveMode } from "./agent.js";
 
@@ -28,11 +29,15 @@ const PORT = parseInt(process.env.PORT || "3000", 10);
 // Sessions are keyed by salon slug + client session id, so two salons never
 // share conversation state.
 const sessions = new Map<string, Session>();
-function getSession(salonSlug: string, id: string): Session {
-  const key = `${salonSlug}:${id}`;
+function sessionKey(slug: string, id: string): string {
+  return `${slug}:${id}`;
+}
+function getSession(salon: SalonContext, id: string): Session {
+  const key = sessionKey(salon.slug, id);
   let s = sessions.get(key);
   if (!s) {
-    s = { history: [], mock: {} };
+    // Rehydrate prior conversation from the database (survives restarts).
+    s = { history: getMessages(salon.id, key), mock: {} };
     sessions.set(key, s);
   }
   return s;
@@ -100,8 +105,11 @@ const server = http.createServer(async (req, res) => {
     const salon = getSalon(salonSlug);
     if (!salon) return sendJSON(res, 404, { error: "salon no encontrado" });
     try {
-      const session = getSession(salon.slug, sessionId);
+      const session = getSession(salon, sessionId);
       const result = await respond(salon, session, message);
+      const key = sessionKey(salon.slug, sessionId);
+      addMessage(salon.id, key, "user", message);
+      addMessage(salon.id, key, "assistant", result.reply);
       return sendJSON(res, 200, { reply: result.reply, booking: result.booking ?? null });
     } catch (err: any) {
       console.error("chat error:", err?.message || err);
@@ -112,7 +120,11 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && url.pathname === "/api/reset") {
     const { sessionId, salon: salonSlug } = await readBody(req);
     const salon = getSalon(salonSlug);
-    if (salon && sessionId) sessions.delete(`${salon.slug}:${sessionId}`);
+    if (salon && sessionId) {
+      const key = sessionKey(salon.slug, sessionId);
+      sessions.delete(key);
+      clearMessages(salon.id, key);
+    }
     return sendJSON(res, 200, { ok: true });
   }
 

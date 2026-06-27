@@ -60,7 +60,7 @@ export function runTool(
 ): { text: string; booking?: Appointment } {
   switch (name) {
     case "get_current_date": {
-      const iso = todayISO();
+      const iso = todayISO(salon.timezone);
       return { text: JSON.stringify({ today: iso, weekday: WEEKDAYS_ES[weekdayIndex(iso)] }) };
     }
     case "list_services": {

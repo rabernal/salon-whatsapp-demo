@@ -23,8 +23,27 @@ export function fromISO(iso: string): Date {
   return new Date(y, m - 1, day);
 }
 
-export function todayISO(): string {
-  return toISO(new Date());
+// Current date + minutes-since-midnight in a given IANA timezone (e.g.
+// "America/Chicago"). Falls back to the server's local time if tz is omitted.
+export function nowInTZ(tz?: string): { iso: string; minutes: number } {
+  if (!tz) {
+    const d = new Date();
+    return { iso: toISO(d), minutes: d.getHours() * 60 + d.getMinutes() };
+  }
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const p: Record<string, string> = {};
+  for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
+  let hh = parseInt(p.hour, 10);
+  if (hh === 24) hh = 0; // some environments emit "24" at midnight
+  return { iso: `${p.year}-${p.month}-${p.day}`, minutes: hh * 60 + parseInt(p.minute, 10) };
+}
+
+export function todayISO(tz?: string): string {
+  return nowInTZ(tz).iso;
 }
 
 export function addDays(iso: string, n: number): string {
@@ -75,10 +94,11 @@ export function availableSlots(salon: SalonContext, iso: string, serviceId: stri
     return [start, start + dur] as [number, number];
   });
 
-  // If today, don't offer times already past (with 60-min lead time).
-  const now = new Date();
-  const isToday = iso === todayISO();
-  const earliest = isToday ? now.getHours() * 60 + now.getMinutes() + 60 : 0;
+  // If today (in the salon's timezone), don't offer times already past
+  // (with a 60-min lead time).
+  const nowTz = nowInTZ(salon.timezone);
+  const isToday = iso === nowTz.iso;
+  const earliest = isToday ? nowTz.minutes + 60 : 0;
 
   const slots: string[] = [];
   for (let t = open; t + service.durationMin <= close; t += step) {
@@ -103,7 +123,8 @@ export function book(
   if (!isSlotFree(salon, appt.date, appt.time, appt.serviceId)) {
     return { ok: false, reason: "taken" };
   }
-  insertAppointment({
+  // Insert; the DB's unique index is the final authority if two requests race.
+  const id = insertAppointment({
     salonId: salon.id,
     serviceCode: appt.serviceId,
     date: appt.date,
@@ -111,6 +132,7 @@ export function book(
     customerName: appt.customerName,
     customerPhone: appt.customerPhone ?? null,
   });
+  if (id === null) return { ok: false, reason: "taken" };
   upsertCustomer(salon.id, appt.customerName, appt.customerPhone ?? null);
   return { ok: true };
 }

@@ -13,14 +13,15 @@ function norm(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
-function parseDate(text: string): string | undefined {
+function parseDate(text: string, tz?: string): string | undefined {
   const t = norm(text);
-  if (t.includes("pasado manana")) return addDays(todayISO(), 2);
-  if (t.includes("manana")) return addDays(todayISO(), 1);
-  if (t.includes("hoy")) return todayISO();
+  const today = todayISO(tz);
+  if (t.includes("pasado manana")) return addDays(today, 2);
+  if (t.includes("manana")) return addDays(today, 1);
+  if (t.includes("hoy")) return today;
   for (let i = 0; i < 7; i++) {
     if (t.includes(norm(WEEKDAYS[i]))) {
-      let iso = todayISO();
+      let iso = today;
       for (let step = 0; step < 8; step++) {
         iso = addDays(iso, 1);
         if (weekdayIndex(iso) === i) return iso;
@@ -110,7 +111,7 @@ export function respondMock(
   // Extract whatever slots are present in this message.
   const svc = matchService(salon, userText);
   if (svc) st.serviceId = svc.id;
-  const date = parseDate(userText);
+  const date = parseDate(userText, salon.timezone);
   if (date) st.date = date;
 
   const expectingName = !!(st.serviceId && st.date && st.time && !st.customerName);

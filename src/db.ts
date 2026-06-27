@@ -89,6 +89,22 @@ function migrate(): void {
 
     CREATE INDEX IF NOT EXISTS idx_appt_salon_date
       ON appointments(salon_id, date, status);
+
+    -- Hard guard against two active bookings at the same start time for a salon.
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_slot
+      ON appointments(salon_id, date, time) WHERE status = 'booked';
+
+    -- Conversation history (so chats survive a server restart).
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      salon_id INTEGER NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+      session_key TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_msg_session
+      ON messages(salon_id, session_key, id);
   `);
 }
 
@@ -235,6 +251,8 @@ export function getBookedAppointments(salonId: number, date: string): BookedRow[
     .all(salonId, date) as BookedRow[];
 }
 
+// Returns the new appointment id, or null if the slot was already taken
+// (the partial unique index rejects a second active booking at the same time).
 export function insertAppointment(a: {
   salonId: number;
   serviceCode: string;
@@ -242,14 +260,42 @@ export function insertAppointment(a: {
   time: string;
   customerName: string;
   customerPhone?: string | null;
-}): number {
-  const info = db
+}): number | null {
+  try {
+    const info = db
+      .prepare(
+        `INSERT INTO appointments (salon_id, service_code, date, time, customer_name, customer_phone)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(a.salonId, a.serviceCode, a.date, a.time, a.customerName, a.customerPhone ?? null);
+    return Number(info.lastInsertRowid);
+  } catch (err: any) {
+    if (typeof err?.code === "string" && err.code.startsWith("SQLITE_CONSTRAINT")) return null;
+    throw err;
+  }
+}
+
+// ---- Conversation history ----
+export function getMessages(
+  salonId: number, sessionKey: string,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return db
     .prepare(
-      `INSERT INTO appointments (salon_id, service_code, date, time, customer_name, customer_phone)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      "SELECT role, content FROM messages WHERE salon_id = ? AND session_key = ? ORDER BY id",
     )
-    .run(a.salonId, a.serviceCode, a.date, a.time, a.customerName, a.customerPhone ?? null);
-  return Number(info.lastInsertRowid);
+    .all(salonId, sessionKey) as Array<{ role: "user" | "assistant"; content: string }>;
+}
+
+export function addMessage(
+  salonId: number, sessionKey: string, role: "user" | "assistant", content: string,
+): void {
+  db.prepare(
+    "INSERT INTO messages (salon_id, session_key, role, content) VALUES (?, ?, ?, ?)",
+  ).run(salonId, sessionKey, role, content);
+}
+
+export function clearMessages(salonId: number, sessionKey: string): void {
+  db.prepare("DELETE FROM messages WHERE salon_id = ? AND session_key = ?").run(salonId, sessionKey);
 }
 
 export function upsertCustomer(salonId: number, name: string, phone?: string | null): void {

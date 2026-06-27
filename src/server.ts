@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Session } from "./types.js";
 import { SALON, serviceById } from "./salon.js";
-import { prettyDate, prettyTime, seedDemoData } from "./calendar.js";
+import { prettyDate, prettyTime } from "./calendar.js";
 import { respond, isLiveMode } from "./agent.js";
 
 // Minimal .env loader (avoids a dotenv dependency).
@@ -23,8 +23,6 @@ import { respond, isLiveMode } from "./agent.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = parseInt(process.env.PORT || "3000", 10);
-
-seedDemoData();
 
 const sessions = new Map<string, Session>();
 function getSession(id: string): Session {

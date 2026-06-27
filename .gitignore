@@ -9,6 +9,12 @@ node_modules/
 dist/
 build/
 
+# Local database (SQLite)
+data/
+*.db
+*.db-shm
+*.db-wal
+
 # Logs
 *.log
 npm-debug.log*

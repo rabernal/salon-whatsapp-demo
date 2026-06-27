@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp · Studio Bella</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="phone">
+    <!-- Chat header -->
+    <header class="chat-header">
+      <button class="icon-btn" title="Atrás">&#8592;</button>
+      <div class="avatar" id="avatar">SB</div>
+      <div class="who">
+        <div class="name" id="salonName">Studio Bella</div>
+        <div class="status" id="statusLine">en línea</div>
+      </div>
+      <div class="header-actions">
+        <span class="mode-badge" id="modeBadge">MOCK</span>
+        <button class="icon-btn" id="resetBtn" title="Reiniciar conversación">&#8635;</button>
+      </div>
+    </header>
+
+    <!-- Messages -->
+    <main class="chat" id="chat">
+      <div class="day-divider"><span>HOY</span></div>
+      <div class="encryption-note">
+        🔒 Los mensajes están cifrados de extremo a extremo. Demo de asistente de citas.
+      </div>
+    </main>
+
+    <!-- Quick replies -->
+    <div class="suggestions" id="suggestions"></div>
+
+    <!-- Composer -->
+    <footer class="composer">
+      <button class="icon-btn round" id="reminderBtn" title="Simular recordatorio (demo)">🔔</button>
+      <input id="input" type="text" autocomplete="off"
+             placeholder="Escribe un mensaje" />
+      <button class="send-btn" id="sendBtn" title="Enviar">&#10148;</button>
+    </footer>
+  </div>
+
+  <p class="hint">
+    Demo local · escribe como si fueras una clienta · el botón 🔔 simula el recordatorio automático
+  </p>
+
+  <script src="/app.js"></script>
+</body>
+</html>

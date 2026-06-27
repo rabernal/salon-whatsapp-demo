@@ -1,23 +1,27 @@
 import type { Service } from "./types.js";
+import { getDefaultSalon, getServicesForSalon } from "./db.js";
 
-// ---- Demo salon profile (edit freely for each demo recording) ----
+// The active salon config + services are loaded from the database at startup.
+// (Edit the salon/services in the DB, or in the seed in db.ts, not here.)
+const salonRow = getDefaultSalon();
+
 export const SALON = {
-  name: "Studio Bella",
-  tagline: "Salón de belleza",
-  // Business hours in 24h. Open 9:00–19:00, closed Sundays.
-  openHour: 9,
-  closeHour: 19,
-  closedWeekdays: [0], // 0 = Sunday
-  slotStepMin: 30,
+  id: salonRow.id,
+  slug: salonRow.slug,
+  name: salonRow.name,
+  tagline: salonRow.tagline,
+  openHour: salonRow.open_hour,
+  closeHour: salonRow.close_hour,
+  closedWeekdays: JSON.parse(salonRow.closed_weekdays) as number[],
+  slotStepMin: salonRow.slot_step_min,
 };
 
-export const SERVICES: Service[] = [
-  { id: "mani", name: "Manicure", durationMin: 45, price: 25 },
-  { id: "pedi", name: "Pedicure", durationMin: 60, price: 35 },
-  { id: "gel", name: "Uñas de gel", durationMin: 90, price: 55 },
-  { id: "corte", name: "Corte de cabello", durationMin: 45, price: 30 },
-  { id: "tinte", name: "Tinte", durationMin: 120, price: 80 },
-];
+export const SERVICES: Service[] = getServicesForSalon(salonRow.id).map((s) => ({
+  id: s.code,
+  name: s.name,
+  durationMin: s.duration_min,
+  price: s.price,
+}));
 
 export function serviceById(id: string): Service | undefined {
   return SERVICES.find((s) => s.id === id);
@@ -35,7 +39,7 @@ export function matchService(text: string): Service | undefined {
   };
   // Check gel before mani so "uñas de gel" wins over generic "uñas".
   for (const id of ["gel", "tinte", "corte", "pedi", "mani"]) {
-    if (table[id].some((kw) => t.includes(kw))) return serviceById(id);
+    if (table[id]?.some((kw) => t.includes(kw))) return serviceById(id);
   }
   // generic "uñas" / "cita de uñas" -> manicure
   if (t.includes("uña") || t.includes("una ")) return serviceById("mani");

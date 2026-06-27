@@ -62,9 +62,12 @@ src/
   agent.ts         Dispatches to LIVE (Claude tool-use loop) or MOCK
   mockBrain.ts     Offline rule-based Spanish brain (no key)
   tools.ts         Tool schemas + executors (services, availability, booking)
-  calendar.ts      In-memory calendar + availability logic
-  salon.ts         Salon profile + services (edit these per demo)
+  calendar.ts      Availability logic (reads/writes the database)
+  db.ts            SQLite data layer: schema, seed, repository functions
+  salon.ts         Loads the active salon + services from the database
   types.ts         Shared types
+data/
+  salon.db         SQLite database (auto-created; gitignored)
 ```
 
 - **Task-scoped agent.** In LIVE mode the assistant is constrained to booking
@@ -73,16 +76,19 @@ src/
   open-ended chatbots.
 - **Tools the model can call:** `get_current_date`, `list_services`,
   `check_availability`, `book_appointment`.
-- **State is in memory.** Appointments reset when you restart the server. A few
-  slots are pre-booked on startup so availability looks realistic.
+- **Data is persisted in SQLite** (`data/salon.db`, auto-created on first run).
+  Appointments now survive restarts. On first run the database is seeded with the
+  Studio Bella salon, its services, and a couple of pre-booked slots so
+  availability looks realistic. To start fresh, delete `data/salon.db`.
 
 ## Customize for a specific salon
 
-Edit `src/salon.ts`:
-- `SALON.name`, hours, closed days.
-- `SERVICES` — names, prices, durations.
+The salon profile and services live in the database. To change the defaults,
+edit the seed in `src/db.ts` (the `seed()` function) and delete `data/salon.db`
+so it re-seeds on next start. (A salon admin dashboard for editing this without
+code is a later step.)
 
-Change the model with `ANTHROPIC_MODEL` in `.env` (default `claude-sonnet-4-6`).
+Change the model with `ANTHROPIC_MODEL` in `.env` (default `claude-haiku-4-5-20251001`).
 
 ---
 

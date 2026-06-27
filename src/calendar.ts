@@ -1,8 +1,6 @@
 import type { Appointment } from "./types.js";
 import { SALON, serviceById } from "./salon.js";
-
-// ---- In-memory appointment store (resets when the server restarts) ----
-const appointments: Appointment[] = [];
+import { getBookedAppointments, insertAppointment, upsertCustomer } from "./db.js";
 
 const WEEKDAYS_ES = [
   "domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado",
@@ -61,7 +59,7 @@ function timeToMin(time: string): number {
   return h * 60 + m;
 }
 
-// All free start times for a service on a given date.
+// All free start times for a service on a given date (read from the DB).
 export function availableSlots(iso: string, serviceId: string): string[] {
   const service = serviceById(serviceId);
   if (!service || isClosed(iso)) return [];
@@ -70,14 +68,12 @@ export function availableSlots(iso: string, serviceId: string): string[] {
   const close = SALON.closeHour * 60;
   const step = SALON.slotStepMin;
 
-  // Booked intervals for that day.
-  const booked = appointments
-    .filter((a) => a.date === iso)
-    .map((a) => {
-      const start = timeToMin(a.time);
-      const dur = serviceById(a.serviceId)?.durationMin ?? 30;
-      return [start, start + dur] as [number, number];
-    });
+  // Booked intervals for that day, from the database.
+  const booked = getBookedAppointments(SALON.id, iso).map((a) => {
+    const start = timeToMin(a.time);
+    const dur = serviceById(a.service_code)?.durationMin ?? 30;
+    return [start, start + dur] as [number, number];
+  });
 
   // If today, don't offer times already past (with 60-min lead time).
   const now = new Date();
@@ -97,33 +93,21 @@ export function isSlotFree(iso: string, time: string, serviceId: string): boolea
   return availableSlots(iso, serviceId).includes(time);
 }
 
-export function book(appt: Appointment): { ok: boolean; reason?: string } {
+export function book(
+  appt: Appointment & { customerPhone?: string | null },
+): { ok: boolean; reason?: string } {
   if (isClosed(appt.date)) return { ok: false, reason: "closed" };
   if (!isSlotFree(appt.date, appt.time, appt.serviceId)) {
     return { ok: false, reason: "taken" };
   }
-  appointments.push(appt);
+  insertAppointment({
+    salonId: SALON.id,
+    serviceCode: appt.serviceId,
+    date: appt.date,
+    time: appt.time,
+    customerName: appt.customerName,
+    customerPhone: appt.customerPhone ?? null,
+  });
+  upsertCustomer(SALON.id, appt.customerName, appt.customerPhone ?? null);
   return { ok: true };
-}
-
-export function allAppointments(): Appointment[] {
-  return [...appointments];
-}
-
-// Seed a few existing bookings so availability looks realistic in the demo.
-export function seedDemoData(): void {
-  if (appointments.length) return;
-  let d = todayISO();
-  // find the next 2 open days and pre-book a couple of slots
-  const targets: string[] = [];
-  let guard = 0;
-  while (targets.length < 2 && guard < 10) {
-    d = addDays(d, 1);
-    if (!isClosed(d)) targets.push(d);
-    guard++;
-  }
-  for (const day of targets) {
-    appointments.push({ date: day, time: "09:00", serviceId: "gel", customerName: "Reserva" });
-    appointments.push({ date: day, time: "13:00", serviceId: "pedi", customerName: "Reserva" });
-  }
 }

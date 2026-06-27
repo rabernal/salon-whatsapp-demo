@@ -1,5 +1,5 @@
-import type { Appointment } from "./types.js";
-import { SALON, serviceById } from "./salon.js";
+import type { Appointment, SalonContext } from "./types.js";
+import { serviceById } from "./salon.js";
 import { getBookedAppointments, insertAppointment, upsertCustomer } from "./db.js";
 
 const WEEKDAYS_ES = [
@@ -50,8 +50,8 @@ export function prettyTime(time: string): string {
   return `${h12}:${pad(m)} ${period}`;
 }
 
-function isClosed(iso: string): boolean {
-  return SALON.closedWeekdays.includes(weekdayIndex(iso));
+function isClosed(salon: SalonContext, iso: string): boolean {
+  return salon.closedWeekdays.includes(weekdayIndex(iso));
 }
 
 function timeToMin(time: string): number {
@@ -60,18 +60,18 @@ function timeToMin(time: string): number {
 }
 
 // All free start times for a service on a given date (read from the DB).
-export function availableSlots(iso: string, serviceId: string): string[] {
-  const service = serviceById(serviceId);
-  if (!service || isClosed(iso)) return [];
+export function availableSlots(salon: SalonContext, iso: string, serviceId: string): string[] {
+  const service = serviceById(salon, serviceId);
+  if (!service || isClosed(salon, iso)) return [];
 
-  const open = SALON.openHour * 60;
-  const close = SALON.closeHour * 60;
-  const step = SALON.slotStepMin;
+  const open = salon.openHour * 60;
+  const close = salon.closeHour * 60;
+  const step = salon.slotStepMin;
 
-  // Booked intervals for that day, from the database.
-  const booked = getBookedAppointments(SALON.id, iso).map((a) => {
+  // Booked intervals for that day, scoped to this salon.
+  const booked = getBookedAppointments(salon.id, iso).map((a) => {
     const start = timeToMin(a.time);
-    const dur = serviceById(a.service_code)?.durationMin ?? 30;
+    const dur = serviceById(salon, a.service_code)?.durationMin ?? 30;
     return [start, start + dur] as [number, number];
   });
 
@@ -89,25 +89,28 @@ export function availableSlots(iso: string, serviceId: string): string[] {
   return slots;
 }
 
-export function isSlotFree(iso: string, time: string, serviceId: string): boolean {
-  return availableSlots(iso, serviceId).includes(time);
+export function isSlotFree(
+  salon: SalonContext, iso: string, time: string, serviceId: string,
+): boolean {
+  return availableSlots(salon, iso, serviceId).includes(time);
 }
 
 export function book(
+  salon: SalonContext,
   appt: Appointment & { customerPhone?: string | null },
 ): { ok: boolean; reason?: string } {
-  if (isClosed(appt.date)) return { ok: false, reason: "closed" };
-  if (!isSlotFree(appt.date, appt.time, appt.serviceId)) {
+  if (isClosed(salon, appt.date)) return { ok: false, reason: "closed" };
+  if (!isSlotFree(salon, appt.date, appt.time, appt.serviceId)) {
     return { ok: false, reason: "taken" };
   }
   insertAppointment({
-    salonId: SALON.id,
+    salonId: salon.id,
     serviceCode: appt.serviceId,
     date: appt.date,
     time: appt.time,
     customerName: appt.customerName,
     customerPhone: appt.customerPhone ?? null,
   });
-  upsertCustomer(SALON.id, appt.customerName, appt.customerPhone ?? null);
+  upsertCustomer(salon.id, appt.customerName, appt.customerPhone ?? null);
   return { ok: true };
 }

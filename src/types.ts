@@ -5,6 +5,21 @@ export interface Service {
   price: number;
 }
 
+// A fully-loaded salon (tenant) with its services. Threaded through the app
+// so one server can serve many salons.
+export interface SalonContext {
+  id: number;
+  slug: string;
+  name: string;
+  tagline: string;
+  timezone: string;
+  openHour: number;
+  closeHour: number;
+  closedWeekdays: number[];
+  slotStepMin: number;
+  services: Service[];
+}
+
 export interface Appointment {
   date: string; // YYYY-MM-DD
   time: string; // HH:MM (24h)

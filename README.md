@@ -81,6 +81,18 @@ data/
   Studio Bella salon, its services, and a couple of pre-booked slots so
   availability looks realistic. To start fresh, delete `data/salon.db`.
 
+## Multi-tenant
+
+One server serves many salons. Each salon (a "tenant") has its own profile,
+services, hours, and appointments, all scoped by `salon_id` in the database.
+
+- The active salon is chosen per request via `?salon=<slug>` in the URL
+  (defaults to the first salon if omitted).
+- Two demo salons are seeded: `studio-bella` (beauty) and `el-jefe` (barber).
+- Try them: `http://localhost:3000/?salon=studio-bella` and
+  `http://localhost:3000/?salon=el-jefe`. A salon switcher also appears under the
+  chat. Conversations and bookings never cross between salons.
+
 ## Customize for a specific salon
 
 The salon profile and services live in the database. To change the defaults,

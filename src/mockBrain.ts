@@ -1,5 +1,5 @@
-import type { AgentResult, Session } from "./types.js";
-import { SALON, SERVICES, matchService, serviceById } from "./salon.js";
+import type { AgentResult, Session, SalonContext } from "./types.js";
+import { matchService, serviceById } from "./salon.js";
 import {
   addDays, availableSlots, book, prettyDate, prettyTime, todayISO, weekdayIndex,
 } from "./calendar.js";
@@ -81,30 +81,34 @@ function titleCase(s: string): string {
     .join(" ");
 }
 
-function listServices(): string {
-  return SERVICES.map((s) => `• ${s.name} — $${s.price} (${s.durationMin} min)`).join("\n");
+function listServices(salon: SalonContext): string {
+  return salon.services
+    .map((s) => `• ${s.name} — $${s.price} (${s.durationMin} min)`)
+    .join("\n");
 }
 
-function slotsLine(iso: string, serviceId: string): string {
-  const slots = availableSlots(iso, serviceId).slice(0, 6).map(prettyTime);
+function slotsLine(salon: SalonContext, iso: string, serviceId: string): string {
+  const slots = availableSlots(salon, iso, serviceId).slice(0, 6).map(prettyTime);
   return slots.join(", ");
 }
 
-export function respondMock(session: Session, userText: string): AgentResult {
+export function respondMock(
+  salon: SalonContext, session: Session, userText: string,
+): AgentResult {
   const t = norm(userText);
   const st = session.mock;
   const greetedBefore = session.history.some((m) => m.role === "assistant");
 
   // Price / service-list questions can be answered any time.
   if (/precio|cuanto cuesta|cuanto vale|costo|tarifa/.test(t)) {
-    return { reply: `Con gusto 😊 Estos son nuestros precios en ${SALON.name}:\n${listServices()}\n\n¿Te gustaría agendar alguno?` };
+    return { reply: `Con gusto 😊 Estos son nuestros precios en ${salon.name}:\n${listServices(salon)}\n\n¿Te gustaría agendar alguno?` };
   }
   if (/que servicios|servicios tienen|que ofrecen|que hacen/.test(t)) {
-    return { reply: `En ${SALON.name} ofrecemos:\n${listServices()}\n\n¿Cuál te gustaría agendar?` };
+    return { reply: `En ${salon.name} ofrecemos:\n${listServices(salon)}\n\n¿Cuál te gustaría agendar?` };
   }
 
   // Extract whatever slots are present in this message.
-  const svc = matchService(userText);
+  const svc = matchService(salon, userText);
   if (svc) st.serviceId = svc.id;
   const date = parseDate(userText);
   if (date) st.date = date;
@@ -117,10 +121,10 @@ export function respondMock(session: Session, userText: string): AgentResult {
   if (st.serviceId) {
     const time = parseTime(userText);
     if (time) {
-      if (st.date && availableSlots(st.date, st.serviceId).includes(time)) {
+      if (st.date && availableSlots(salon, st.date, st.serviceId).includes(time)) {
         st.time = time;
       } else if (st.date) {
-        const opts = slotsLine(st.date, st.serviceId);
+        const opts = slotsLine(salon, st.date, st.serviceId);
         return {
           reply: opts
             ? `Uy, las ${prettyTime(time)} ya no está disponible 😅 Para el ${prettyDate(st.date)} tengo: ${opts}. ¿Cuál te acomoda?`
@@ -134,12 +138,12 @@ export function respondMock(session: Session, userText: string): AgentResult {
 
   // All slots present -> book.
   if (st.serviceId && st.date && st.time && st.customerName) {
-    const service = serviceById(st.serviceId)!;
-    const res = book({
+    const service = serviceById(salon, st.serviceId)!;
+    const res = book(salon, {
       date: st.date, time: st.time, serviceId: st.serviceId, customerName: st.customerName,
     });
     if (!res.ok) {
-      const opts = slotsLine(st.date, st.serviceId);
+      const opts = slotsLine(salon, st.date, st.serviceId);
       st.time = undefined;
       return {
         reply: opts
@@ -154,24 +158,24 @@ export function respondMock(session: Session, userText: string): AgentResult {
       reply:
         `¡Listo, ${booking.customerName}! 🎉 Tu cita quedó agendada:\n\n` +
         `💅 ${service.name}\n📅 ${prettyDate(booking.date)}\n🕒 ${prettyTime(booking.time)}\n💵 $${service.price}\n\n` +
-        `Te enviaré un recordatorio un día antes. ¡Te esperamos en ${SALON.name}! 😊`,
+        `Te enviaré un recordatorio un día antes. ¡Te esperamos en ${salon.name}! 😊`,
       booking,
     };
   }
 
   // Otherwise, ask for the next missing piece.
   if (!st.serviceId) {
-    const opener = greetedBefore ? "Claro 😊" : `¡Hola! Bienvenida a ${SALON.name} 💖`;
+    const opener = greetedBefore ? "Claro 😊" : `¡Hola! Bienvenida a ${salon.name} 💖`;
     return {
-      reply: `${opener} Con gusto te agendo una cita. ¿Qué servicio te gustaría?\n${listServices()}`,
+      reply: `${opener} Con gusto te agendo una cita. ¿Qué servicio te gustaría?\n${listServices(salon)}`,
     };
   }
-  const serviceName = serviceById(st.serviceId)!.name;
+  const serviceName = serviceById(salon, st.serviceId)!.name;
   if (!st.date) {
     return { reply: `¡Perfecto, ${serviceName.toLowerCase()}! 📅 ¿Qué día te gustaría venir? (por ejemplo: hoy, mañana, o el jueves)` };
   }
   if (!st.time) {
-    const opts = slotsLine(st.date, st.serviceId);
+    const opts = slotsLine(salon, st.date, st.serviceId);
     if (!opts) {
       st.date = undefined;
       return { reply: `Para ese día no tengo horarios libres 😕 ¿Probamos otro día?` };

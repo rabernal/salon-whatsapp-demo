@@ -1,13 +1,13 @@
-import type { AgentResult, Session } from "./types.js";
-import { SALON, SERVICES } from "./salon.js";
-import { TOOLS, runTool } from "./tools.js";
+import type { AgentResult, Session, SalonContext } from "./types.js";
+import { getTools, runTool } from "./tools.js";
 import { respondMock } from "./mockBrain.js";
 
 export function isLiveMode(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
-const SYSTEM_PROMPT = `Eres el asistente de citas por WhatsApp de "${SALON.name}", un ${SALON.tagline}.
+function buildSystemPrompt(salon: SalonContext): string {
+  return `Eres el asistente de citas por WhatsApp de "${salon.name}", un ${salon.tagline}.
 Tu ÚNICA función es ayudar a los clientes a: ver servicios y precios, consultar disponibilidad y agendar citas.
 
 Reglas:
@@ -17,7 +17,8 @@ Reglas:
 - Para fechas relativas ("hoy", "mañana", "el jueves") usa get_current_date primero.
 - Antes de agendar, confirma servicio, fecha, hora y el nombre del cliente.
 - Tras agendar, confirma los detalles y menciona que se enviará un recordatorio un día antes.
-- Servicios disponibles: ${SERVICES.map((s) => `${s.name} ($${s.price})`).join(", ")}.`;
+- Servicios disponibles: ${salon.services.map((s) => `${s.name} ($${s.price})`).join(", ")}.`;
+}
 
 // Lazily import the SDK so the project runs in mock mode without it installed.
 let clientPromise: Promise<any> | null = null;
@@ -30,9 +31,13 @@ async function getClient(): Promise<any> {
   return clientPromise;
 }
 
-async function respondLive(session: Session, userText: string): Promise<AgentResult> {
+async function respondLive(
+  salon: SalonContext, session: Session, userText: string,
+): Promise<AgentResult> {
   const client = await getClient();
   const model = process.env.ANTHROPIC_MODEL || "claude-haiku-4-5-20251001";
+  const tools = getTools(salon);
+  const system = buildSystemPrompt(salon);
 
   // Build message list from history + new user turn.
   const messages: any[] = session.history.map((m) => ({ role: m.role, content: m.content }));
@@ -45,8 +50,8 @@ async function respondLive(session: Session, userText: string): Promise<AgentRes
     const res = await client.messages.create({
       model,
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
-      tools: TOOLS as any,
+      system,
+      tools,
       messages,
     });
 
@@ -55,7 +60,7 @@ async function respondLive(session: Session, userText: string): Promise<AgentRes
       const toolResults: any[] = [];
       for (const block of res.content) {
         if (block.type === "tool_use") {
-          const out = runTool(block.name, block.input, session);
+          const out = runTool(salon, block.name, block.input, session);
           if (out.booking) booking = out.booking;
           toolResults.push({
             type: "tool_result",
@@ -79,10 +84,12 @@ async function respondLive(session: Session, userText: string): Promise<AgentRes
   return { reply: "Lo siento, tuve un problema procesando eso. ¿Lo intentamos de nuevo?", booking };
 }
 
-export async function respond(session: Session, userText: string): Promise<AgentResult> {
+export async function respond(
+  salon: SalonContext, session: Session, userText: string,
+): Promise<AgentResult> {
   const result = isLiveMode()
-    ? await respondLive(session, userText)
-    : respondMock(session, userText);
+    ? await respondLive(salon, session, userText)
+    : respondMock(salon, session, userText);
 
   // Persist conversation history.
   session.history.push({ role: "user", content: userText });

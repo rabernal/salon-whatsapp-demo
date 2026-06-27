@@ -8,6 +8,9 @@ const suggestionsEl = document.getElementById("suggestions");
 let sessionId = "s_" + Math.random().toString(36).slice(2);
 let busy = false;
 
+// Which salon (tenant) to talk to — from ?salon=<slug> in the URL (default if absent).
+const salonSlug = new URLSearchParams(location.search).get("salon") || "";
+
 function now() {
   const d = new Date();
   return d.getHours() + ":" + d.getMinutes().toString().padStart(2, "0");
@@ -56,7 +59,7 @@ async function send(text) {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sessionId, message: text }),
+      body: JSON.stringify({ sessionId, message: text, salon: salonSlug }),
     });
     const data = await res.json();
     await delay;
@@ -72,7 +75,10 @@ async function send(text) {
 }
 
 async function showReminder() {
-  const res = await fetch("/api/reminder?sessionId=" + encodeURIComponent(sessionId));
+  const res = await fetch(
+    "/api/reminder?sessionId=" + encodeURIComponent(sessionId) +
+    "&salon=" + encodeURIComponent(salonSlug),
+  );
   const data = await res.json();
   if (!data.reminder) {
     addBubble("Primero agenda una cita para ver el recordatorio 😉", "in");
@@ -92,15 +98,36 @@ function renderSuggestions(list) {
   });
 }
 
+// Small salon switcher (demonstrates multi-tenant). Renders below the chat.
+function renderSalonSwitcher(salons, activeSlug) {
+  if (!salons || salons.length < 2) return;
+  let bar = document.getElementById("salonSwitcher");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "salonSwitcher";
+    bar.style.cssText = "display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:8px;font-size:13px;";
+    document.querySelector(".hint")?.after(bar);
+  }
+  bar.innerHTML = "<span style='color:#5b6b73'>Salón:</span> ";
+  salons.forEach((s) => {
+    const a = document.createElement("a");
+    a.textContent = s.name;
+    a.href = "?salon=" + encodeURIComponent(s.slug);
+    a.style.cssText = "color:#075e54;text-decoration:none;font-weight:" + (s.slug === activeSlug ? "700" : "400");
+    bar.appendChild(a);
+  });
+}
+
 async function init() {
   try {
-    const cfg = await (await fetch("/api/config")).json();
+    const cfg = await (await fetch("/api/config?salon=" + encodeURIComponent(salonSlug))).json();
     document.getElementById("salonName").textContent = cfg.salon;
     document.getElementById("avatar").textContent = cfg.salon.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
     const badge = document.getElementById("modeBadge");
     badge.textContent = cfg.mode.toUpperCase();
     if (cfg.mode === "live") badge.classList.add("live");
     renderSuggestions(cfg.suggestions);
+    renderSalonSwitcher(cfg.salons, cfg.slug);
   } catch { /* ignore */ }
   setTimeout(() => addBubble("¡Hola! 👋 Soy el asistente de citas. ¿En qué te puedo ayudar hoy?", "in"), 400);
 }
@@ -109,7 +136,7 @@ sendBtn.onclick = () => send(input.value);
 input.addEventListener("keydown", (e) => { if (e.key === "Enter") send(input.value); });
 reminderBtn.onclick = showReminder;
 resetBtn.onclick = async () => {
-  await fetch("/api/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId }) });
+  await fetch("/api/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, salon: salonSlug }) });
   sessionId = "s_" + Math.random().toString(36).slice(2);
   chat.querySelectorAll(".bubble, .typing").forEach((n) => n.remove());
   init();

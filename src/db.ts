@@ -89,56 +89,114 @@ function migrate(): void {
 
     CREATE INDEX IF NOT EXISTS idx_appt_salon_date
       ON appointments(salon_id, date, status);
+
+    -- Hard guard against two active bookings at the same start time for a salon.
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_active_slot
+      ON appointments(salon_id, date, time) WHERE status = 'booked';
+
+    -- Conversation history (so chats survive a server restart).
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      salon_id INTEGER NOT NULL REFERENCES salons(id) ON DELETE CASCADE,
+      session_key TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_msg_session
+      ON messages(salon_id, session_key, id);
   `);
 }
 
-// ---- Seed (only when empty) ----
-function seed(): void {
-  const count = (db.prepare("SELECT COUNT(*) AS n FROM salons").get() as { n: number }).n;
-  if (count > 0) return;
+// ---- Seed definitions (idempotent: each salon added only if its slug is missing) ----
+interface SalonSeed {
+  slug: string;
+  name: string;
+  tagline: string;
+  timezone: string;
+  open_hour: number;
+  close_hour: number;
+  closed_weekdays: number[];
+  slot_step_min: number;
+  services: { code: string; name: string; duration_min: number; price: number }[];
+  // two service codes to pre-book on the next open days, for realistic availability
+  demo: [string, string];
+}
 
-  const insertSalon = db.prepare(`
-    INSERT INTO salons (slug, name, tagline, timezone, open_hour, close_hour, closed_weekdays, slot_step_min)
-    VALUES (@slug, @name, @tagline, @timezone, @open_hour, @close_hour, @closed_weekdays, @slot_step_min)
-  `);
-  const info = insertSalon.run({
+const SALON_SEEDS: SalonSeed[] = [
+  {
     slug: "studio-bella",
     name: "Studio Bella",
     tagline: "Salón de belleza",
     timezone: "America/Chicago",
     open_hour: 9,
     close_hour: 19,
-    closed_weekdays: "[0]",
+    closed_weekdays: [0],
     slot_step_min: 30,
-  });
+    services: [
+      { code: "mani", name: "Manicure", duration_min: 45, price: 25 },
+      { code: "pedi", name: "Pedicure", duration_min: 60, price: 35 },
+      { code: "gel", name: "Uñas de gel", duration_min: 90, price: 55 },
+      { code: "corte", name: "Corte de cabello", duration_min: 45, price: 30 },
+      { code: "tinte", name: "Tinte", duration_min: 120, price: 80 },
+    ],
+    demo: ["gel", "pedi"],
+  },
+  {
+    slug: "el-jefe",
+    name: "Barbería El Jefe",
+    tagline: "Barbería",
+    timezone: "America/Chicago",
+    open_hour: 10,
+    close_hour: 20,
+    closed_weekdays: [1], // closed Mondays
+    slot_step_min: 30,
+    services: [
+      { code: "corte", name: "Corte de cabello", duration_min: 45, price: 25 },
+      { code: "barba", name: "Arreglo de barba", duration_min: 30, price: 18 },
+      { code: "combo", name: "Corte + barba", duration_min: 75, price: 38 },
+      { code: "tinte", name: "Tinte", duration_min: 60, price: 35 },
+    ],
+    demo: ["combo", "corte"],
+  },
+];
+
+function ensureSalon(seedDef: SalonSeed): void {
+  const existing = db.prepare("SELECT id FROM salons WHERE slug = ?").get(seedDef.slug) as
+    | { id: number }
+    | undefined;
+  if (existing) return;
+
+  const info = db
+    .prepare(
+      `INSERT INTO salons (slug, name, tagline, timezone, open_hour, close_hour, closed_weekdays, slot_step_min)
+       VALUES (@slug, @name, @tagline, @timezone, @open_hour, @close_hour, @closed_weekdays, @slot_step_min)`,
+    )
+    .run({ ...seedDef, closed_weekdays: JSON.stringify(seedDef.closed_weekdays) });
   const salonId = Number(info.lastInsertRowid);
 
-  const services: Omit<ServiceRow, "id" | "salon_id" | "active">[] = [
-    { code: "mani", name: "Manicure", duration_min: 45, price: 25 },
-    { code: "pedi", name: "Pedicure", duration_min: 60, price: 35 },
-    { code: "gel", name: "Uñas de gel", duration_min: 90, price: 55 },
-    { code: "corte", name: "Corte de cabello", duration_min: 45, price: 30 },
-    { code: "tinte", name: "Tinte", duration_min: 120, price: 80 },
-  ];
-  const insertService = db.prepare(`
-    INSERT INTO services (salon_id, code, name, duration_min, price)
-    VALUES (?, ?, ?, ?, ?)
-  `);
-  const insertMany = db.transaction(() => {
-    for (const s of services) {
+  const insertService = db.prepare(
+    "INSERT INTO services (salon_id, code, name, duration_min, price) VALUES (?, ?, ?, ?, ?)",
+  );
+  const tx = db.transaction(() => {
+    for (const s of seedDef.services) {
       insertService.run(salonId, s.code, s.name, s.duration_min, s.price);
     }
   });
-  insertMany();
+  tx();
 
-  seedDemoAppointments(salonId);
+  seedDemoAppointments(salonId, seedDef.closed_weekdays, seedDef.demo, seedDef.open_hour);
 }
 
 // A couple of pre-booked slots so availability looks realistic on first run.
-function seedDemoAppointments(salonId: number): void {
+function seedDemoAppointments(
+  salonId: number,
+  closed: number[],
+  codes: [string, string],
+  openHour: number,
+): void {
   const pad = (n: number) => n.toString().padStart(2, "0");
   const toISO = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  const closed = [0];
   const days: string[] = [];
   const d = new Date();
   let guard = 0;
@@ -147,18 +205,28 @@ function seedDemoAppointments(salonId: number): void {
     if (!closed.includes(d.getDay())) days.push(toISO(d));
     guard++;
   }
-  const ins = db.prepare(`
-    INSERT INTO appointments (salon_id, service_code, date, time, customer_name, status)
-    VALUES (?, ?, ?, ?, ?, 'booked')
-  `);
+  const t1 = `${pad(openHour)}:00`;
+  const t2 = `${pad(openHour + 3)}:00`;
+  const ins = db.prepare(
+    `INSERT INTO appointments (salon_id, service_code, date, time, customer_name, status)
+     VALUES (?, ?, ?, ?, ?, 'booked')`,
+  );
   for (const day of days) {
-    ins.run(salonId, "gel", day, "09:00", "Reserva");
-    ins.run(salonId, "pedi", day, "13:00", "Reserva");
+    ins.run(salonId, codes[0], day, t1, "Reserva");
+    ins.run(salonId, codes[1], day, t2, "Reserva");
   }
+}
+
+function seed(): void {
+  for (const s of SALON_SEEDS) ensureSalon(s);
 }
 
 migrate();
 seed();
+
+export function listSalons(): SalonRow[] {
+  return db.prepare("SELECT * FROM salons ORDER BY id").all() as SalonRow[];
+}
 
 // ---- Repository functions ----
 export function getDefaultSalon(): SalonRow {
@@ -183,6 +251,8 @@ export function getBookedAppointments(salonId: number, date: string): BookedRow[
     .all(salonId, date) as BookedRow[];
 }
 
+// Returns the new appointment id, or null if the slot was already taken
+// (the partial unique index rejects a second active booking at the same time).
 export function insertAppointment(a: {
   salonId: number;
   serviceCode: string;
@@ -190,14 +260,42 @@ export function insertAppointment(a: {
   time: string;
   customerName: string;
   customerPhone?: string | null;
-}): number {
-  const info = db
+}): number | null {
+  try {
+    const info = db
+      .prepare(
+        `INSERT INTO appointments (salon_id, service_code, date, time, customer_name, customer_phone)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(a.salonId, a.serviceCode, a.date, a.time, a.customerName, a.customerPhone ?? null);
+    return Number(info.lastInsertRowid);
+  } catch (err: any) {
+    if (typeof err?.code === "string" && err.code.startsWith("SQLITE_CONSTRAINT")) return null;
+    throw err;
+  }
+}
+
+// ---- Conversation history ----
+export function getMessages(
+  salonId: number, sessionKey: string,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return db
     .prepare(
-      `INSERT INTO appointments (salon_id, service_code, date, time, customer_name, customer_phone)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      "SELECT role, content FROM messages WHERE salon_id = ? AND session_key = ? ORDER BY id",
     )
-    .run(a.salonId, a.serviceCode, a.date, a.time, a.customerName, a.customerPhone ?? null);
-  return Number(info.lastInsertRowid);
+    .all(salonId, sessionKey) as Array<{ role: "user" | "assistant"; content: string }>;
+}
+
+export function addMessage(
+  salonId: number, sessionKey: string, role: "user" | "assistant", content: string,
+): void {
+  db.prepare(
+    "INSERT INTO messages (salon_id, session_key, role, content) VALUES (?, ?, ?, ?)",
+  ).run(salonId, sessionKey, role, content);
+}
+
+export function clearMessages(salonId: number, sessionKey: string): void {
+  db.prepare("DELETE FROM messages WHERE salon_id = ? AND session_key = ?").run(salonId, sessionKey);
 }
 
 export function upsertCustomer(salonId: number, name: string, phone?: string | null): void {

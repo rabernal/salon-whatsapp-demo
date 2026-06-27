@@ -81,6 +81,38 @@ data/
   Studio Bella salon, its services, and a couple of pre-booked slots so
   availability looks realistic. To start fresh, delete `data/salon.db`.
 
+## Testing
+
+Run the offline test suite (no API key needed — it drives the mock brain):
+
+```bash
+npm test
+```
+
+It covers price questions, a full Spanish booking flow, closed-day refusal,
+one-shot bookings, the second (barber) tenant, the double-booking guard, and
+tenant isolation. Tests use a throwaway database and never touch `data/salon.db`.
+
+## Reliability
+
+- Bookings persist in SQLite and survive restarts.
+- Conversation history is stored per salon + session, so chats survive a restart.
+- A partial unique index prevents two active bookings in the same slot, even
+  under a race (the availability check is the first line; the index is the backstop).
+- "Today" and "now" are computed in each salon's timezone, not the server's.
+
+## Multi-tenant
+
+One server serves many salons. Each salon (a "tenant") has its own profile,
+services, hours, and appointments, all scoped by `salon_id` in the database.
+
+- The active salon is chosen per request via `?salon=<slug>` in the URL
+  (defaults to the first salon if omitted).
+- Two demo salons are seeded: `studio-bella` (beauty) and `el-jefe` (barber).
+- Try them: `http://localhost:3000/?salon=studio-bella` and
+  `http://localhost:3000/?salon=el-jefe`. A salon switcher also appears under the
+  chat. Conversations and bookings never cross between salons.
+
 ## Customize for a specific salon
 
 The salon profile and services live in the database. To change the defaults,

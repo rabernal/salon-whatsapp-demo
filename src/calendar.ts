@@ -1,5 +1,5 @@
-import type { Appointment } from "./types.js";
-import { SALON, serviceById } from "./salon.js";
+import type { Appointment, SalonContext } from "./types.js";
+import { serviceById } from "./salon.js";
 import { getBookedAppointments, insertAppointment, upsertCustomer } from "./db.js";
 
 const WEEKDAYS_ES = [
@@ -23,8 +23,27 @@ export function fromISO(iso: string): Date {
   return new Date(y, m - 1, day);
 }
 
-export function todayISO(): string {
-  return toISO(new Date());
+// Current date + minutes-since-midnight in a given IANA timezone (e.g.
+// "America/Chicago"). Falls back to the server's local time if tz is omitted.
+export function nowInTZ(tz?: string): { iso: string; minutes: number } {
+  if (!tz) {
+    const d = new Date();
+    return { iso: toISO(d), minutes: d.getHours() * 60 + d.getMinutes() };
+  }
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  const p: Record<string, string> = {};
+  for (const part of fmt.formatToParts(new Date())) p[part.type] = part.value;
+  let hh = parseInt(p.hour, 10);
+  if (hh === 24) hh = 0; // some environments emit "24" at midnight
+  return { iso: `${p.year}-${p.month}-${p.day}`, minutes: hh * 60 + parseInt(p.minute, 10) };
+}
+
+export function todayISO(tz?: string): string {
+  return nowInTZ(tz).iso;
 }
 
 export function addDays(iso: string, n: number): string {
@@ -50,8 +69,8 @@ export function prettyTime(time: string): string {
   return `${h12}:${pad(m)} ${period}`;
 }
 
-function isClosed(iso: string): boolean {
-  return SALON.closedWeekdays.includes(weekdayIndex(iso));
+function isClosed(salon: SalonContext, iso: string): boolean {
+  return salon.closedWeekdays.includes(weekdayIndex(iso));
 }
 
 function timeToMin(time: string): number {
@@ -60,25 +79,26 @@ function timeToMin(time: string): number {
 }
 
 // All free start times for a service on a given date (read from the DB).
-export function availableSlots(iso: string, serviceId: string): string[] {
-  const service = serviceById(serviceId);
-  if (!service || isClosed(iso)) return [];
+export function availableSlots(salon: SalonContext, iso: string, serviceId: string): string[] {
+  const service = serviceById(salon, serviceId);
+  if (!service || isClosed(salon, iso)) return [];
 
-  const open = SALON.openHour * 60;
-  const close = SALON.closeHour * 60;
-  const step = SALON.slotStepMin;
+  const open = salon.openHour * 60;
+  const close = salon.closeHour * 60;
+  const step = salon.slotStepMin;
 
-  // Booked intervals for that day, from the database.
-  const booked = getBookedAppointments(SALON.id, iso).map((a) => {
+  // Booked intervals for that day, scoped to this salon.
+  const booked = getBookedAppointments(salon.id, iso).map((a) => {
     const start = timeToMin(a.time);
-    const dur = serviceById(a.service_code)?.durationMin ?? 30;
+    const dur = serviceById(salon, a.service_code)?.durationMin ?? 30;
     return [start, start + dur] as [number, number];
   });
 
-  // If today, don't offer times already past (with 60-min lead time).
-  const now = new Date();
-  const isToday = iso === todayISO();
-  const earliest = isToday ? now.getHours() * 60 + now.getMinutes() + 60 : 0;
+  // If today (in the salon's timezone), don't offer times already past
+  // (with a 60-min lead time).
+  const nowTz = nowInTZ(salon.timezone);
+  const isToday = iso === nowTz.iso;
+  const earliest = isToday ? nowTz.minutes + 60 : 0;
 
   const slots: string[] = [];
   for (let t = open; t + service.durationMin <= close; t += step) {
@@ -89,25 +109,30 @@ export function availableSlots(iso: string, serviceId: string): string[] {
   return slots;
 }
 
-export function isSlotFree(iso: string, time: string, serviceId: string): boolean {
-  return availableSlots(iso, serviceId).includes(time);
+export function isSlotFree(
+  salon: SalonContext, iso: string, time: string, serviceId: string,
+): boolean {
+  return availableSlots(salon, iso, serviceId).includes(time);
 }
 
 export function book(
+  salon: SalonContext,
   appt: Appointment & { customerPhone?: string | null },
 ): { ok: boolean; reason?: string } {
-  if (isClosed(appt.date)) return { ok: false, reason: "closed" };
-  if (!isSlotFree(appt.date, appt.time, appt.serviceId)) {
+  if (isClosed(salon, appt.date)) return { ok: false, reason: "closed" };
+  if (!isSlotFree(salon, appt.date, appt.time, appt.serviceId)) {
     return { ok: false, reason: "taken" };
   }
-  insertAppointment({
-    salonId: SALON.id,
+  // Insert; the DB's unique index is the final authority if two requests race.
+  const id = insertAppointment({
+    salonId: salon.id,
     serviceCode: appt.serviceId,
     date: appt.date,
     time: appt.time,
     customerName: appt.customerName,
     customerPhone: appt.customerPhone ?? null,
   });
-  upsertCustomer(SALON.id, appt.customerName, appt.customerPhone ?? null);
+  if (id === null) return { ok: false, reason: "taken" };
+  upsertCustomer(salon.id, appt.customerName, appt.customerPhone ?? null);
   return { ok: true };
 }

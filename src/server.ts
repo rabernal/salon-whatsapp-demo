@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Session } from "./types.js";
-import { SALON, serviceById } from "./salon.js";
+import type { SalonContext } from "./types.js";
+import { getSalon, serviceById } from "./salon.js";
+import { listSalons, getMessages, addMessage, clearMessages } from "./db.js";
 import { prettyDate, prettyTime } from "./calendar.js";
 import { respond, isLiveMode } from "./agent.js";
 
@@ -24,12 +26,19 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "../public");
 const PORT = parseInt(process.env.PORT || "3000", 10);
 
+// Sessions are keyed by salon slug + client session id, so two salons never
+// share conversation state.
 const sessions = new Map<string, Session>();
-function getSession(id: string): Session {
-  let s = sessions.get(id);
+function sessionKey(slug: string, id: string): string {
+  return `${slug}:${id}`;
+}
+function getSession(salon: SalonContext, id: string): Session {
+  const key = sessionKey(salon.slug, id);
+  let s = sessions.get(key);
   if (!s) {
-    s = { history: [], mock: {} };
-    sessions.set(id, s);
+    // Rehydrate prior conversation from the database (survives restarts).
+    s = { history: getMessages(salon.id, key), mock: {} };
+    sessions.set(key, s);
   }
   return s;
 }
@@ -72,10 +81,14 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://localhost:${PORT}`);
 
   if (req.method === "GET" && url.pathname === "/api/config") {
+    const salon = getSalon(url.searchParams.get("salon") || undefined);
+    if (!salon) return sendJSON(res, 404, { error: "salon no encontrado" });
     return sendJSON(res, 200, {
-      salon: SALON.name,
-      tagline: SALON.tagline,
+      slug: salon.slug,
+      salon: salon.name,
+      tagline: salon.tagline,
       mode: isLiveMode() ? "live" : "mock",
+      salons: listSalons().map((s) => ({ slug: s.slug, name: s.name })),
       suggestions: [
         "Hola, quiero agendar una cita 💅",
         "¿Qué precios manejan?",
@@ -85,13 +98,18 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/chat") {
-    const { sessionId, message } = await readBody(req);
+    const { sessionId, message, salon: salonSlug } = await readBody(req);
     if (!sessionId || typeof message !== "string") {
       return sendJSON(res, 400, { error: "sessionId y message son requeridos" });
     }
+    const salon = getSalon(salonSlug);
+    if (!salon) return sendJSON(res, 404, { error: "salon no encontrado" });
     try {
-      const session = getSession(sessionId);
-      const result = await respond(session, message);
+      const session = getSession(salon, sessionId);
+      const result = await respond(salon, session, message);
+      const key = sessionKey(salon.slug, sessionId);
+      addMessage(salon.id, key, "user", message);
+      addMessage(salon.id, key, "assistant", result.reply);
       return sendJSON(res, 200, { reply: result.reply, booking: result.booking ?? null });
     } catch (err: any) {
       console.error("chat error:", err?.message || err);
@@ -100,19 +118,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/api/reset") {
-    const { sessionId } = await readBody(req);
-    if (sessionId) sessions.delete(sessionId);
+    const { sessionId, salon: salonSlug } = await readBody(req);
+    const salon = getSalon(salonSlug);
+    if (salon && sessionId) {
+      const key = sessionKey(salon.slug, sessionId);
+      sessions.delete(key);
+      clearMessages(salon.id, key);
+    }
     return sendJSON(res, 200, { ok: true });
   }
 
   // Returns a reminder message for the most recent booking (for the demo button).
   if (req.method === "GET" && url.pathname === "/api/reminder") {
+    const salon = getSalon(url.searchParams.get("salon") || undefined);
     const sessionId = url.searchParams.get("sessionId") || "";
-    const b = sessions.get(sessionId)?.lastBooking;
+    if (!salon) return sendJSON(res, 404, { error: "salon no encontrado" });
+    const b = sessions.get(`${salon.slug}:${sessionId}`)?.lastBooking;
     if (!b) return sendJSON(res, 200, { reminder: null });
-    const svc = serviceById(b.serviceId);
+    const svc = serviceById(salon, b.serviceId);
     const reminder =
-      `Hola ${b.customerName} 👋 Te recordamos tu cita en ${SALON.name}:\n` +
+      `Hola ${b.customerName} 👋 Te recordamos tu cita en ${salon.name}:\n` +
       `💅 ${svc?.name}\n📅 ${prettyDate(b.date)}\n🕒 ${prettyTime(b.time)}\n\n` +
       `Responde *CONFIRMAR* para confirmar o *REAGENDAR* si necesitas cambiarla. ¡Te esperamos! 😊`;
     return sendJSON(res, 200, { reminder });
@@ -133,7 +158,9 @@ server.on("error", (err: NodeJS.ErrnoException) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  ${SALON.name} — WhatsApp demo running`);
+  const salons = listSalons();
+  console.log(`\n  WhatsApp booking demo running`);
   console.log(`  Mode: ${isLiveMode() ? "LIVE (Claude)" : "MOCK (offline, no API key)"}`);
-  console.log(`  Open: http://localhost:${PORT}\n`);
+  console.log(`  Salons: ${salons.map((s) => s.slug).join(", ")}`);
+  console.log(`  Open: http://localhost:${PORT}  (add ?salon=<slug> to switch)\n`);
 });

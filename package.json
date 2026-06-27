@@ -7,6 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
     "db:show": "tsx scripts/db-show.ts",
+    "test": "tsx scripts/test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

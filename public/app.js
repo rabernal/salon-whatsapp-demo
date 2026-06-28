@@ -10,6 +10,9 @@ let busy = false;
 
 // Which salon (tenant) to talk to — from ?salon=<slug> in the URL (default if absent).
 const salonSlug = new URLSearchParams(location.search).get("salon") || "";
+// Show the MOCK/LIVE badge only when ?debug is present (hidden for prospects).
+const debug = new URLSearchParams(location.search).has("debug");
+let reminderHinted = false;
 
 function now() {
   const d = new Date();
@@ -65,6 +68,7 @@ async function send(text) {
     await delay;
     hideTyping();
     addBubble(data.reply || data.error || "…", "in");
+    if (data.booking) showReminderHint();
   } catch (e) {
     hideTyping();
     addBubble("⚠️ No se pudo conectar con el servidor.", "in");
@@ -86,6 +90,19 @@ async function showReminder() {
   }
   showTyping();
   setTimeout(() => { hideTyping(); addBubble(data.reminder, "in", { reminder: true }); }, 700);
+}
+
+// After a booking, gently point the visitor to the reminder feature (once).
+function showReminderHint() {
+  if (reminderHinted) return;
+  reminderHinted = true;
+  setTimeout(() => {
+    const n = document.createElement("div");
+    n.style.cssText = "align-self:center;background:#fff3cd;color:#7a5d00;font-size:12px;text-align:center;padding:7px 12px;border-radius:8px;max-width:88%;margin:8px 0;";
+    n.textContent = "👇 Toca el botón 🔔 para ver el recordatorio automático que recibe la clienta antes de su cita.";
+    chat.appendChild(n);
+    chat.scrollTop = chat.scrollHeight;
+  }, 900);
 }
 
 function renderSuggestions(list) {
@@ -124,8 +141,12 @@ async function init() {
     document.getElementById("salonName").textContent = cfg.salon;
     document.getElementById("avatar").textContent = cfg.salon.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
     const badge = document.getElementById("modeBadge");
-    badge.textContent = cfg.mode.toUpperCase();
-    if (cfg.mode === "live") badge.classList.add("live");
+    if (debug) {
+      badge.textContent = cfg.mode.toUpperCase();
+      if (cfg.mode === "live") badge.classList.add("live");
+    } else {
+      badge.style.display = "none";
+    }
     renderSuggestions(cfg.suggestions);
     renderSalonSwitcher(cfg.salons, cfg.slug);
   } catch { /* ignore */ }
@@ -138,6 +159,7 @@ reminderBtn.onclick = showReminder;
 resetBtn.onclick = async () => {
   await fetch("/api/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionId, salon: salonSlug }) });
   sessionId = "s_" + Math.random().toString(36).slice(2);
+  reminderHinted = false;
   chat.querySelectorAll(".bubble, .typing").forEach((n) => n.remove());
   init();
 };

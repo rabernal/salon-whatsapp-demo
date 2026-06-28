@@ -90,7 +90,7 @@ export function runTool(
         serviceId: input.service_id,
         customerName: input.customer_name,
       };
-      const res = book(salon, appt);
+      const res = book(salon, { ...appt, customerPhone: session.customerPhone ?? null });
       if (!res.ok) {
         return {
           text: JSON.stringify({

@@ -17,6 +17,7 @@ function build(row: SalonRow): SalonContext {
     closeHour: row.close_hour,
     closedWeekdays: JSON.parse(row.closed_weekdays) as number[],
     slotStepMin: row.slot_step_min,
+    waPhoneNumberId: row.wa_phone_number_id ?? null,
     services: getServicesForSalon(row.id).map((s) => ({
       id: s.code,
       name: s.name,
@@ -39,6 +40,11 @@ export function getSalon(slug?: string): SalonContext | undefined {
   cache.set(key, ctx);
   cache.set(row.slug, ctx);
   return ctx;
+}
+
+// Clear the in-memory salon cache (call after changing salon rows at runtime).
+export function clearSalonCache(): void {
+  cache.clear();
 }
 
 export function serviceById(salon: SalonContext, id: string): Service | undefined {

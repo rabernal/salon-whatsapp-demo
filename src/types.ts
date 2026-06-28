@@ -18,6 +18,7 @@ export interface SalonContext {
   closedWeekdays: number[];
   slotStepMin: number;
   services: Service[];
+  waPhoneNumberId: string | null; // WhatsApp Cloud API phone number id (for sending)
 }
 
 export interface Appointment {
@@ -41,6 +42,8 @@ export interface AgentResult {
 export interface Session {
   history: ChatMessage[];
   lastBooking?: Appointment;
+  // Customer's WhatsApp phone (set for WhatsApp conversations; attached to bookings).
+  customerPhone?: string;
   // Slot-filling state used only by the offline mock brain.
   mock: {
     serviceId?: string;

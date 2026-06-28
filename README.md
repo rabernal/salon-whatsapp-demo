@@ -124,9 +124,15 @@ Change the model with `ANTHROPIC_MODEL` in `.env` (default `claude-haiku-4-5-202
 
 ---
 
-## What this is NOT (yet)
+## Real WhatsApp (optional)
 
-This is the **demo**, not the production product. It does not connect to the real
-WhatsApp Cloud API. The next phase wires the same `agent.ts` / `tools.ts` to
-Meta's Cloud API webhooks, a real calendar, and a reminder scheduler — multi-tenant,
-one codebase per many salons. (See the architecture in the project plan.)
+The same agent can run on real WhatsApp via the Cloud API: an inbound webhook,
+replies through the Graph API, and a day-before reminder scheduler — all
+multi-tenant (routed by `phone_number_id`). It's off until you set the WhatsApp
+env vars. See **WHATSAPP.md** for setup and how to test with Meta's free test
+number. With no WhatsApp vars set, the app runs as the web demo only.
+
+## Still to do for full production
+
+A salon-facing dashboard + self-serve onboarding (Embedded Signup), Stripe
+billing, and monitoring — build these once you have a paying client.

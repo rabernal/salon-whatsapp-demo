@@ -24,6 +24,18 @@ export interface SalonRow {
   close_hour: number;
   closed_weekdays: string; // JSON array of weekday indexes
   slot_step_min: number;
+  wa_phone_number_id: string | null; // WhatsApp Cloud API phone number id
+}
+export interface AppointmentRow {
+  id: number;
+  salon_id: number;
+  service_code: string;
+  date: string;
+  time: string;
+  customer_name: string;
+  customer_phone: string | null;
+  status: string;
+  reminded: number;
 }
 export interface ServiceRow {
   id: number;
@@ -106,6 +118,17 @@ function migrate(): void {
     CREATE INDEX IF NOT EXISTS idx_msg_session
       ON messages(salon_id, session_key, id);
   `);
+
+  // Additive column migrations (safe to run on existing databases).
+  addColumnIfMissing("salons", "wa_phone_number_id", "TEXT");
+  addColumnIfMissing("appointments", "reminded", "INTEGER NOT NULL DEFAULT 0");
+}
+
+function addColumnIfMissing(table: string, column: string, decl: string): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${decl}`);
+  }
 }
 
 // ---- Seed definitions (idempotent: each salon added only if its slug is missing) ----
@@ -226,6 +249,30 @@ seed();
 
 export function listSalons(): SalonRow[] {
   return db.prepare("SELECT * FROM salons ORDER BY id").all() as SalonRow[];
+}
+
+// ---- WhatsApp routing + reminders ----
+export function getSalonByWaPhoneId(waPhoneNumberId: string): SalonRow | undefined {
+  return db
+    .prepare("SELECT * FROM salons WHERE wa_phone_number_id = ?")
+    .get(waPhoneNumberId) as SalonRow | undefined;
+}
+
+export function setWaPhoneNumberId(slug: string, waPhoneNumberId: string): void {
+  db.prepare("UPDATE salons SET wa_phone_number_id = ? WHERE slug = ?").run(waPhoneNumberId, slug);
+}
+
+// Booked, not-yet-reminded appointments for a salon on a given date.
+export function getAppointmentsNeedingReminder(salonId: number, date: string): AppointmentRow[] {
+  return db
+    .prepare(
+      "SELECT * FROM appointments WHERE salon_id = ? AND date = ? AND status = 'booked' AND reminded = 0",
+    )
+    .all(salonId, date) as AppointmentRow[];
+}
+
+export function markReminded(appointmentId: number): void {
+  db.prepare("UPDATE appointments SET reminded = 1 WHERE id = ?").run(appointmentId);
 }
 
 // ---- Repository functions ----

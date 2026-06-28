@@ -75,8 +75,10 @@ export function matchService(salon: SalonContext, text: string): Service | undef
     if (t.includes(svc.name.toLowerCase())) return svc;
   }
 
-  // 4) generic "uñas" -> manicure if offered
-  if (t.includes("uña") || t.includes("una ")) {
+  // 4) generic "uñas"/"unas" -> manicure if offered.
+  // Important: match the noun "uñas/uña", NOT the article "una" (e.g. "una cita").
+  const tn = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  if (/\buñas?\b/.test(t) || /\bunas\b/.test(tn)) {
     return salon.services.find((s) => s.id === "mani");
   }
   return undefined;

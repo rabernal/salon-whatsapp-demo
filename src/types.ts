@@ -19,6 +19,7 @@ export interface SalonContext {
   slotStepMin: number;
   services: Service[];
   waPhoneNumberId: string | null; // WhatsApp Cloud API phone number id (for sending)
+  brandColor: string; // hex color for the booking page
 }
 
 export interface Appointment {

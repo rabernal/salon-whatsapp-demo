@@ -166,6 +166,7 @@ const server = http.createServer(async (req, res) => {
       slug: salon.slug,
       salon: salon.name,
       tagline: salon.tagline,
+      brandColor: salon.brandColor,
       mode: isLiveMode() ? "live" : "mock",
       salons: listSalons().map((s) => ({ slug: s.slug, name: s.name })),
       suggestions: [

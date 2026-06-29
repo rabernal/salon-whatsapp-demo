@@ -8,9 +8,12 @@ const suggestionsEl = document.getElementById("suggestions");
 let sessionId = "s_" + Math.random().toString(36).slice(2);
 let busy = false;
 
-// Which salon (tenant) to talk to — from ?salon=<slug> in the URL (default if absent).
-const salonSlug = new URLSearchParams(location.search).get("salon") || "";
-// Show the MOCK/LIVE badge only when ?debug is present (hidden for prospects).
+// Which salon (tenant) to talk to — from the path /s/<slug> or ?salon=<slug>.
+const pathMatch = location.pathname.match(/^\/s\/([^/]+)/);
+const salonSlug = pathMatch
+  ? decodeURIComponent(pathMatch[1])
+  : (new URLSearchParams(location.search).get("salon") || "");
+// Debug-only UI (mode badge, reminder button) shown when ?debug is present.
 const debug = new URLSearchParams(location.search).has("debug");
 let reminderHinted = false;
 
@@ -68,7 +71,7 @@ async function send(text) {
     await delay;
     hideTyping();
     addBubble(data.reply || data.error || "…", "in");
-    if (data.booking) showReminderHint();
+    if (data.booking && debug) showReminderHint();
   } catch (e) {
     hideTyping();
     addBubble("⚠️ No se pudo conectar con el servidor.", "in");
@@ -147,6 +150,7 @@ async function init() {
     } else {
       badge.style.display = "none";
     }
+    if (!debug) reminderBtn.style.display = "none"; // reminder demo button is debug-only
     renderSuggestions(cfg.suggestions);
     renderSalonSwitcher(cfg.salons, cfg.slug);
   } catch { /* ignore */ }

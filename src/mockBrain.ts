@@ -159,7 +159,7 @@ export function respondMock(
       reply:
         `¡Listo, ${booking.customerName}! 🎉 Tu cita quedó agendada:\n\n` +
         `💅 ${service.name}\n📅 ${prettyDate(booking.date)}\n🕒 ${prettyTime(booking.time)}\n💵 $${service.price}\n\n` +
-        `Te enviaré un recordatorio un día antes. ¡Te esperamos en ${salon.name}! 😊`,
+        `¡Te esperamos en ${salon.name}! 😊`,
       booking,
     };
   }

@@ -256,6 +256,12 @@ const server = http.createServer(async (req, res) => {
     return sendJSON(res, 200, { sent });
   }
 
+  // Clean per-salon booking URL: /s/<slug> serves the chat page (the frontend
+  // reads the slug from the path). QR codes point here.
+  if (req.method === "GET" && url.pathname.startsWith("/s/")) {
+    return serveStatic(res, "/index.html");
+  }
+
   if (req.method === "GET") return serveStatic(res, url.pathname);
 
   res.writeHead(405); res.end("Method not allowed");

@@ -18,6 +18,7 @@ function build(row: SalonRow): SalonContext {
     closedWeekdays: JSON.parse(row.closed_weekdays) as number[],
     slotStepMin: row.slot_step_min,
     waPhoneNumberId: row.wa_phone_number_id ?? null,
+    brandColor: row.brand_color || "#6b2d5c",
     services: getServicesForSalon(row.id).map((s) => ({
       id: s.code,
       name: s.name,

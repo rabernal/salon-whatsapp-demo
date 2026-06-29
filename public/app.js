@@ -141,6 +141,11 @@ function renderSalonSwitcher(salons, activeSlug) {
 async function init() {
   try {
     const cfg = await (await fetch("/api/config?salon=" + encodeURIComponent(salonSlug))).json();
+    if (cfg.brandColor) {
+      document.documentElement.style.setProperty("--brand", cfg.brandColor);
+      const tc = document.querySelector('meta[name="theme-color"]');
+      if (tc) tc.setAttribute("content", cfg.brandColor);
+    }
     document.getElementById("salonName").textContent = cfg.salon;
     document.getElementById("avatar").textContent = cfg.salon.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
     const badge = document.getElementById("modeBadge");
@@ -152,7 +157,7 @@ async function init() {
     }
     if (!debug) reminderBtn.style.display = "none"; // reminder demo button is debug-only
     renderSuggestions(cfg.suggestions);
-    renderSalonSwitcher(cfg.salons, cfg.slug);
+    if (debug) renderSalonSwitcher(cfg.salons, cfg.slug);
   } catch { /* ignore */ }
   setTimeout(() => addBubble("¡Hola! 👋 Soy el asistente de citas. ¿En qué te puedo ayudar hoy?", "in"), 400);
 }

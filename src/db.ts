@@ -25,6 +25,7 @@ export interface SalonRow {
   closed_weekdays: string; // JSON array of weekday indexes
   slot_step_min: number;
   wa_phone_number_id: string | null; // WhatsApp Cloud API phone number id
+  brand_color: string | null; // hex color for the salon's booking page
 }
 export interface AppointmentRow {
   id: number;
@@ -122,6 +123,7 @@ function migrate(): void {
   // Additive column migrations (safe to run on existing databases).
   addColumnIfMissing("salons", "wa_phone_number_id", "TEXT");
   addColumnIfMissing("appointments", "reminded", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing("salons", "brand_color", "TEXT");
 }
 
 function addColumnIfMissing(table: string, column: string, decl: string): void {
@@ -144,6 +146,7 @@ interface SalonSeed {
   services: { code: string; name: string; duration_min: number; price: number }[];
   // two service codes to pre-book on the next open days, for realistic availability
   demo: [string, string];
+  brandColor: string; // hex color for the salon's booking page
 }
 
 const SALON_SEEDS: SalonSeed[] = [
@@ -164,6 +167,7 @@ const SALON_SEEDS: SalonSeed[] = [
       { code: "tinte", name: "Tinte", duration_min: 120, price: 80 },
     ],
     demo: ["gel", "pedi"],
+    brandColor: "#c2185b",
   },
   {
     slug: "el-jefe",
@@ -181,6 +185,7 @@ const SALON_SEEDS: SalonSeed[] = [
       { code: "tinte", name: "Tinte", duration_min: 60, price: 35 },
     ],
     demo: ["combo", "corte"],
+    brandColor: "#2c3e50",
   },
 ];
 
@@ -192,10 +197,14 @@ function ensureSalon(seedDef: SalonSeed): void {
 
   const info = db
     .prepare(
-      `INSERT INTO salons (slug, name, tagline, timezone, open_hour, close_hour, closed_weekdays, slot_step_min)
-       VALUES (@slug, @name, @tagline, @timezone, @open_hour, @close_hour, @closed_weekdays, @slot_step_min)`,
+      `INSERT INTO salons (slug, name, tagline, timezone, open_hour, close_hour, closed_weekdays, slot_step_min, brand_color)
+       VALUES (@slug, @name, @tagline, @timezone, @open_hour, @close_hour, @closed_weekdays, @slot_step_min, @brand_color)`,
     )
-    .run({ ...seedDef, closed_weekdays: JSON.stringify(seedDef.closed_weekdays) });
+    .run({
+      ...seedDef,
+      closed_weekdays: JSON.stringify(seedDef.closed_weekdays),
+      brand_color: seedDef.brandColor,
+    });
   const salonId = Number(info.lastInsertRowid);
 
   const insertService = db.prepare(
@@ -242,6 +251,11 @@ function seedDemoAppointments(
 
 function seed(): void {
   for (const s of SALON_SEEDS) ensureSalon(s);
+  // Backfill brand colors for salons created before this column existed.
+  const setColor = db.prepare(
+    "UPDATE salons SET brand_color = ? WHERE slug = ? AND (brand_color IS NULL OR brand_color = '')",
+  );
+  for (const s of SALON_SEEDS) setColor.run(s.brandColor, s.slug);
 }
 
 migrate();

@@ -1,12 +1,13 @@
 :root {
-  --wa-teal: #075e54;
-  --wa-teal-dark: #054c44;
-  --wa-green: #25d366;
-  --wa-out: #d9fdd3;
-  --wa-bg: #efeae2;
-  --wa-in: #ffffff;
-  --wa-text: #111b21;
-  --wa-muted: #667781;
+  /* Salon booking palette (intentionally distinct from WhatsApp). */
+  --wa-teal: #6b2d5c;        /* header / send button (plum) */
+  --wa-teal-dark: #57244b;
+  --wa-green: #b5179e;       /* accent */
+  --wa-out: #f3e4f0;         /* outgoing bubble (soft plum) */
+  --wa-bg: #f3eef1;          /* chat background */
+  --wa-in: #ffffff;          /* incoming bubble */
+  --wa-text: #2a2230;
+  --wa-muted: #8a7f88;
 }
 
 * { box-sizing: border-box; }

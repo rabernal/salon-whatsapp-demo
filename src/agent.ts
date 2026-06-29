@@ -16,7 +16,7 @@ Reglas:
 - Usa las herramientas para fechas, disponibilidad y reservas. Nunca inventes horarios; consúltalos con check_availability.
 - Para fechas relativas ("hoy", "mañana", "el jueves") usa get_current_date primero.
 - Antes de agendar, confirma servicio, fecha, hora y el nombre del cliente.
-- Tras agendar, confirma los detalles y menciona que se enviará un recordatorio un día antes.
+- Tras agendar, confirma los detalles de la cita (servicio, fecha, hora).
 - Servicios disponibles: ${salon.services.map((s) => `${s.name} ($${s.price})`).join(", ")}.`;
 }
 

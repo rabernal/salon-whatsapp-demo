@@ -1,7 +1,15 @@
-# Studio Bella — WhatsApp Booking Assistant (Recordable Demo)
+# Salon Booking Assistant
 
-A WhatsApp-style AI booking assistant for a Spanish-speaking salon. Built to be
-**screen-recorded** for client outreach. It runs in two modes:
+An AI chat assistant that lets a salon's customers book appointments in Spanish,
+reached by a **link or QR code** — no app, no WhatsApp account required. Each
+salon gets its own page:
+
+- **Per-salon URL:** `https://<your-host>/s/<slug>` (e.g. `/s/studio-bella`).
+- **QR codes:** open `/links.html` (internal) to view and download a QR for each
+  salon — put it on the storefront, Instagram/TikTok bio, flyers, etc.
+
+This is the primary product. (Real WhatsApp delivery is an optional add-on; see
+WHATSAPP.md.) It runs in two modes:
 
 - **MOCK mode (default):** fully offline, no API key, no paid packages. Great for
   previewing the UI and recording a quick clip immediately.
